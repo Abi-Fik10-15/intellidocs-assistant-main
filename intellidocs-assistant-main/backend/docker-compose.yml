@@ -1,0 +1,96 @@
+# Backwards compatibility — prefer running from the repository root:
+#
+#   cd ..
+#   docker compose up --build
+#
+# Or from this folder (includes frontend via parent context):
+name: intellidocs
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: intellidocs-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: intellidocs
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d intellidocs"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: intellidocs-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "4000:4000"
+    environment:
+      PORT: 4000
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/intellidocs
+      UPLOAD_DIR: /app/uploads
+      N8N_WEBHOOK_URL: http://n8n-workflow:5678/webhook/intellidocs
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        INTERNAL_API_URL: http://backend:4000
+    container_name: intellidocs-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      INTERNAL_API_URL: http://backend:4000
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  n8n-workflow:
+    image: n8nio/n8n:latest
+    container_name: intellidocs-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      N8N_HOST: localhost
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: http://localhost:5678/
+      GENERIC_TIMEZONE: UTC
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+volumes:
+  postgres_data:
+  uploads_data:
+  n8n_data:
