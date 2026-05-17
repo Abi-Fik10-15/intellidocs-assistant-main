@@ -4,13 +4,44 @@ AI-powered document Q&A: upload PDFs, TXT, or Markdown, then chat with grounded 
 
 ---
 
+## Quick start (one command)
+
+From the **project root**:
+
+```bash
+cp backend/.env.example backend/.env
+# Edit backend/.env — add at least one API key and set LLM_PROVIDER / EMBEDDING_PROVIDER
+docker compose up --build
+```
+
+| Service | URL |
+|---------|-----|
+| **App (use this)** | http://localhost:3000 |
+| API | http://localhost:4000 |
+| PostgreSQL | localhost:5432 |
+| n8n (optional) | http://localhost:5678 |
+
+Docker starts **Postgres** (with pgvector), runs **migrations** on the backend, then serves the **frontend** and **API**. No separate `npm install` or `npm run dev` required.
+
+Stop: `docker compose down` (add `-v` to wipe database and uploads).
+
+**Port 3000 already in use?** Stop local `npm run dev`, or run:
+
+```bash
+FRONTEND_PORT=3002 docker compose up --build
+```
+
+Then open http://localhost:3002.
+
+---
+
 ## Features
 
 - **Document upload & ingestion** — chunking, embedding, and vector indexing
 - **Semantic search** — pgvector similarity over document chunks
 - **Agentic chat** — tool calling (`search_documents`, `summarize_document`, `extract_entities`)
 - **Citations** — answers link back to document name and chunk
-- **Multi-provider LLM** — switch via `LLM_PROVIDER` without changing app code
+- **Multi-provider LLM** — switch in **Settings** (OpenAI, Claude, Gemini) or via `LLM_PROVIDER` in `.env`
 - **Responsive UI** — closable, resizable sidebar; mobile-friendly layout
 - **Optional n8n** — webhooks on ingest and chat completion
 
@@ -263,7 +294,7 @@ intellidocs-assistant-main/
 ├── components/             # UI (chat, sidebar, upload, settings)
 ├── lib/                    # API client, utilities
 ├── store/                  # Zustand chat/document state
-├── hooks/                  # Media query, persisted sidebar
+├── hooks/                  # Document upload, media query, sidebar
 ├── backend/
 │   ├── src/
 │   │   ├── app.ts          # Express app
@@ -280,6 +311,8 @@ intellidocs-assistant-main/
 │   │   └── db/             # Schema + migrations
 │   ├── docker-compose.yml
 │   └── .env.example
+├── docker-compose.yml      # Full stack (recommended)
+├── Dockerfile              # Next.js standalone image
 ├── next.config.ts          # API rewrites → backend :4000
 └── package.json
 ```
@@ -290,10 +323,10 @@ intellidocs-assistant-main/
 
 | Requirement | Version / notes |
 |-------------|-----------------|
-| **Node.js** | 20 LTS or newer |
-| **npm** | 9+ |
-| **Docker Desktop** | Recommended for Postgres + optional full stack |
+| **Docker Desktop** | Required for the one-command setup |
 | **LLM API key** | At least one: [OpenAI](https://platform.openai.com/), [Anthropic](https://console.anthropic.com/), or [Google AI](https://ai.google.dev/) |
+| **Node.js** | 20 LTS+ — only if you run frontend/backend locally without Docker |
+| **npm** | 9+ — only for local development |
 
 **Ports used locally:**
 
@@ -306,49 +339,15 @@ intellidocs-assistant-main/
 
 ---
 
-## Setup
+## Configuration
 
-### Step 1 — Clone and install dependencies
-
-```bash
-cd intellidocs-assistant-main
-
-# Frontend
-npm install
-
-# Backend
-cd backend
-npm install
-cd ..
-```
-
-### Step 2 — Start PostgreSQL
-
-From `backend/`:
+Copy and edit environment file once before the first `docker compose up`:
 
 ```bash
-docker compose up postgres -d
+cp backend/.env.example backend/.env
 ```
 
-Wait until healthy (`docker compose ps`). Default credentials match `.env.example`:
-
-`postgresql://postgres:postgres@localhost:5432/intellidocs`
-
-Apply schema:
-
-```bash
-cd backend
-npm run db:migrate
-```
-
-### Step 3 — Configure environment
-
-```bash
-cd backend
-cp .env.example .env
-```
-
-Edit `backend/.env`. Example configurations:
+Example configurations:
 
 **OpenAI (chat + embeddings):**
 
@@ -364,7 +363,7 @@ OPENAI_API_KEY=sk-...
 LLM_PROVIDER=gemini
 EMBEDDING_PROVIDER=gemini
 GEMINI_API_KEY=...
-GEMINI_MODEL=gemini-2.0-flash
+GEMINI_MODEL=gemini-2.0-flash-lite
 ```
 
 **Local dev without embedding API calls:**
@@ -377,72 +376,72 @@ GEMINI_API_KEY=...
 
 > After changing `EMBEDDING_PROVIDER`, **re-upload** documents so vectors are regenerated with the same provider.
 
-### Step 4 — Start the backend
+Restart the backend container after editing `.env`:
+
+```bash
+docker compose up -d --build backend
+```
+
+---
+
+## Local development (without Docker)
+
+Use this if you prefer hot reload on the host instead of the all-in-one Docker stack.
+
+### 1 — Install dependencies
+
+```bash
+cd intellidocs-assistant-main
+npm install
+cd backend && npm install && cd ..
+```
+
+### 2 — Postgres + schema
 
 ```bash
 cd backend
-npm run dev
+docker compose up postgres -d
+npm run db:migrate
 ```
 
-Verify:
+### 3 — Configure `.env`
 
 ```bash
-curl http://localhost:4000/api/health
-```
-
-Expected: JSON with `"success": true`.
-
-### Step 5 — Start the frontend
-
-In a **second terminal**, from the project root:
-
-```bash
-npm run dev
-```
-
-Or, if Next.js cache errors appear (`Cannot find module './611.js'`):
-
-```bash
-npm run dev:clean
-```
-
-Open **http://localhost:3000**.
-
-### Step 6 — Smoke test
-
-1. Upload a small PDF or `.txt` file in the sidebar.
-2. Wait until status shows **ready** (green).
-3. Click **Summarize my latest PDF** or type a question.
-4. Confirm the answer includes content from your file.
-
-### Setup with Docker (full stack — one command)
-
-From the **project root** (not `backend/`):
-
-```bash
-cp backend/.env.example backend/.env
-# Edit backend/.env — add GEMINI_API_KEY and/or OPENAI_API_KEY, set LLM_PROVIDER
-docker compose up --build
-```
-
-| Service | URL |
-|---------|-----|
-| **App (frontend)** | http://localhost:3000 |
-| API | http://localhost:4000 |
-| PostgreSQL | localhost:5432 |
-| n8n | http://localhost:5678 |
-
-Services started: `postgres` → `backend` (migrates DB on boot) → `frontend` → `n8n-workflow`.
-
-You can also run from `backend/` (same stack):
-
-```bash
-cd backend
 cp .env.example .env
-docker compose up --build
+# Edit backend/.env (same examples as Configuration above)
 ```
 
-Stop everything: `docker compose down` (add `-v` to remove volumes).
+### 4 — Run API and frontend (two terminals)
+
+**Terminal 1 — backend:**
+
+```bash
+cd backend
+npm run dev
+```
+
+**Terminal 2 — frontend (project root):**
+
+```bash
+npm run dev
+# or: npm run dev:clean  (if Next.js cache errors)
+```
+
+Open **http://localhost:3000**. API health: `curl http://localhost:4000/api/health`.
+
+You can also run the full Docker stack from `backend/` (`docker compose up --build`) — same services as the root compose file.
+
+---
+
+## Smoke test
+
+1. Open http://localhost:3000
+2. Upload a PDF or `.txt` via the sidebar **or** the **paperclip** in the chat input
+3. Wait until the document status is **ready**
+4. Ask a question or use a quick-action card
+5. Optional: switch LLM in **Settings** (sidebar footer)
+
+---
 
 ### Windows notes
 
@@ -478,6 +477,8 @@ Copy `backend/.env.example` to `backend/.env`.
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/health` | Health check |
+| `GET` | `/api/settings` | Active LLM provider + which keys are configured |
+| `PATCH` | `/api/settings/llm-provider` | Switch chat provider at runtime (`{ "provider": "gemini" }`) |
 | `POST` | `/api/upload` | Upload document (multipart `file`) |
 | `GET` | `/api/documents` | List documents |
 | `GET` | `/api/documents/:id` | Document status |
@@ -501,27 +502,39 @@ backend/src/services/llm/
 └── index.ts
 ```
 
-Switch providers by changing `.env`:
+Switch providers in the UI (**Settings → LLM provider**) or in `.env`:
 
 ```env
 LLM_PROVIDER=gemini
 EMBEDDING_PROVIDER=gemini
 ```
 
-Restart the backend after changes.
+UI changes apply immediately for chat. `.env` changes require a backend restart. Embeddings always follow `EMBEDDING_PROVIDER` in `.env`.
 
 ---
 
 ## Usage
 
-1. Upload a **PDF**, **TXT**, or **Markdown** file in the sidebar.
+1. **Upload** — sidebar drop zone, **paperclip** in chat, or drag-and-drop in the sidebar.
 2. Wait until status is **ready** (ingestion + embedding).
-3. Ask a question or use a quick-action card (summarize, compare, quotes, brief).
+3. **Ask** a question or use a quick-action card (summarize, compare, quotes, brief).
 4. Review answers and **citations** in the chat.
+5. **Delete** a document — trash icon on the right of each file in the sidebar **Documents** list.
+6. **Change LLM** — **Settings** at the bottom of the sidebar (providers need API keys in `backend/.env`).
 
 ---
 
 ## Scripts
+
+### Docker (project root — recommended)
+
+| Command | Description |
+|---------|-------------|
+| `docker compose up --build` | Start full stack (Postgres, API, UI, n8n) |
+| `docker compose up -d --build` | Same, detached |
+| `docker compose up -d --build backend` | Rebuild backend after `.env` changes |
+| `docker compose down` | Stop all services |
+| `docker compose down -v` | Stop and remove volumes (DB + uploads) |
 
 ### Frontend (project root)
 
